@@ -40,6 +40,7 @@ class Settings:
     pulse_current: float = 20
     reward_deadband: str = "0.01"
     hodl_feedback: str = "off"
+    account_feedback: bool = False
     decoder_threshold_hz: float = 2
     paper_fee: str = "0.006"
     learning: bool = True
@@ -80,6 +81,10 @@ class Settings:
             raise ValueError("Unknown HODL feedback policy")
         if self.hodl_feedback != "off" and len(self.products) != 1:
             raise ValueError("HODL feedback requires exactly one product")
+        if type(self.account_feedback) is not bool:
+            raise ValueError("Account feedback must be boolean")
+        if self.account_feedback and len(self.products) != 1:
+            raise ValueError("Account feedback requires exactly one product")
         for x in [
             self.max_quote_age,
             self.neural_ms,

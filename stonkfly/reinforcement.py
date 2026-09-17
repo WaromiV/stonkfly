@@ -57,3 +57,37 @@ def hodl_reinforcement(equity, anchor, deadband, current, previous):
         "deadband_usdc": str(D(deadband)),
     }
     return kind, delta, feedback
+
+
+def account_reinforcement(kind, delta, feedback, account):
+    """One next-observation aversive pulse for a recorded balance rejection.
+
+    The outcome must come from account_observation's tick-matched ledger record.
+    Portfolio/HODL evidence remains logged; pulses do not stack or grow in strength.
+    """
+    previous = account["previous_execution"]
+    rejected = bool(
+        previous and previous["status"] == "VETO"
+        and (previous["side"], previous.get("reason_code")) in (
+            ("BUY", "insufficient_cash"), ("SELL", "insufficient_inventory")
+        )
+    )
+    result = dict(feedback) if feedback else {
+        "policy": "portfolio-pnl",
+        "base_stimulus": kind,
+        "pnl_delta_usdc": str(delta),
+        "reason": "portfolio_pnl",
+    }
+    result.update({
+        "account_feedback": True,
+        "stimulus_before_account_feedback": kind,
+        "rejection_triggered": rejected,
+        "rejection_source_tick": previous["tick"] if rejected else None,
+        "rejected_side": previous["side"] if rejected else None,
+        "rejection_code": previous["reason_code"] if rejected else None,
+    })
+    if rejected:
+        kind = "aversive"
+        result["reason"] = "balance_rejection"
+    result["effective_stimulus"] = kind
+    return kind, result

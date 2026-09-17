@@ -73,6 +73,10 @@ def main():
         default="off",
         help="Paper-only aversive feedback when the fee-aware HODL shortfall grows",
     )
+    run.add_argument(
+        "--account-feedback", action="store_true",
+        help="Paper-only wallet visual cues and feedback for balance-rejected attempts",
+    )
     status = sub.add_parser("status")
     status.add_argument("--out", type=Path, default=Path("runs/paper"))
     a = p.parse_args()
@@ -117,6 +121,8 @@ def main():
         p.error("Unlimited daily orders are available only in paper mode")
     if a.live and a.hodl_feedback != "off":
         p.error("HODL feedback is available only in paper mode")
+    if a.live and a.account_feedback:
+        p.error("Account feedback is available only in paper mode")
     if a.steps < 0:
         p.error("steps cannot be negative")
     settings = Settings(
@@ -127,6 +133,7 @@ def main():
         daily_orders=a.daily_orders,
         paper_fee=a.paper_fee,
         hodl_feedback=a.hodl_feedback,
+        account_feedback=a.account_feedback,
     )
     out = a.out or Path("runs/live" if a.live else "runs/paper")
     out.mkdir(parents=True, exist_ok=True)
@@ -164,11 +171,12 @@ def main():
         from PIL import Image
 
         from .actions import StonkflyActions
+        from .account import account_observation, execution_outcome
         from .benchmark import HodlBenchmark
         from .display import market_frame
         from .market import CoinbaseMarket, FixtureMarket
         from .neural.controller import FlyController
-        from .reinforcement import hodl_reinforcement, reinforcement
+        from .reinforcement import account_reinforcement, hodl_reinforcement, reinforcement
         from .risk import Guard, Veto
 
         market = (
@@ -260,7 +268,11 @@ def main():
                     equity, ledger.get("anchor"), settings.reward_deadband,
                     hodl, previous_hodl,
                 )
-            frame = market_frame(product, market.history[product], q.bid, q.ask)
+            account = None
+            if settings.account_feedback:
+                account = account_observation(settings, ledger, q)
+                kind, feedback = account_reinforcement(kind, delta, feedback, account)
+            frame = market_frame(product, market.history[product], q.bid, q.ask, account)
             neural = controller.observe(frame, kind)
             # Checkpoint + accounting anchor are committed before any trade.
             # Two slots keep the last committed snapshot safe during a crash.
@@ -280,6 +292,7 @@ def main():
                 "fixture_tick": getattr(market, "tick", None),
                 "hodl": hodl,
                 "feedback": feedback,
+                "account": account,
             }
             ledger.commit_tick(equity, checkpoint_info, observation)
             previous_hodl = hodl
@@ -294,7 +307,11 @@ def main():
                     provider.quotes = fresh
                     order = action.invoke({"product": product, "side": neural["side"]})
                 except Veto as e:
-                    order = {"status": "VETO", "reason": str(e)}
+                    order = {"status": "VETO", "reason": str(e), "reason_code": e.code}
+            if settings.account_feedback:
+                ledger.put("execution_outcome", execution_outcome(
+                    ledger.get("tick"), product, neural["side"], order
+                ))
             row = {
                 "tick": ledger.get("tick"),
                 "wall_time": time.time(),
@@ -307,6 +324,7 @@ def main():
                 "execution": order,
                 "hodl": hodl,
                 "feedback": feedback,
+                "account": account,
             }
             with (out / "events.jsonl").open("a") as f:
                 f.write(json.dumps(row, allow_nan=False) + "\n")

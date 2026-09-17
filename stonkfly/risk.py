@@ -6,7 +6,35 @@ from .config import D, down, up
 
 
 class Veto(Exception):
-    pass
+    def __init__(self, reason, code=None):
+        super().__init__(reason)
+        self.code = code
+
+
+def order_capacity(settings, cash, holdings, quote, side):
+    """Pure balance/minimum-order calculation shared by cues and execution.
+
+    Affordability is not permission to trade: other guard checks still apply.
+    """
+    reserve = D(settings.fee_reserve)
+    if side == "BUY":
+        limit = up(quote.ask * (1 + D(settings.slippage)), quote.price_increment)
+        budget = min(D(settings.order_limit), D(cash)) / (1 + reserve)
+        size = down(budget / limit, quote.base_increment)
+    elif side == "SELL":
+        limit = down(quote.bid * (1 - D(settings.slippage)), quote.price_increment)
+        size = down(
+            min(D(holdings), D(settings.order_limit) / quote.ask), quote.base_increment
+        )
+    else:
+        raise ValueError("Invalid side")
+    return {
+        "base_size": str(size),
+        "limit_price": str(limit),
+        "fee_ceiling": str(size * limit * reserve),
+        "affordable": limit > 0 and size >= quote.minimum_base
+        and size * limit >= quote.minimum_quote,
+    }
 
 
 class Guard:
@@ -47,25 +75,18 @@ class Guard:
         if self.s.daily_orders and self.l.attempts_today(now) >= self.s.daily_orders:
             raise Veto("Daily order limit")
         q = quotes[product]
-        reserve = D(self.s.fee_reserve)
-        if side == "BUY":
-            limit = up(q.ask * (1 + D(self.s.slippage)), q.price_increment)
-            budget = min(D(self.s.order_limit), self.l.cash) / (1 + reserve)
-            size = down(budget / limit, q.base_increment)
-        else:
-            limit = down(q.bid * (1 - D(self.s.slippage)), q.price_increment)
-            size = down(
-                min(self.l.positions.get(product, D(0)), D(self.s.order_limit) / q.ask),
-                q.base_increment,
+        capacity = order_capacity(
+            self.s, self.l.cash, self.l.positions.get(product, D(0)), q, side
+        )
+        if not capacity["affordable"]:
+            raise Veto(
+                "Insufficient funds/position or below exchange minimum",
+                "insufficient_cash" if side == "BUY" else "insufficient_inventory",
             )
-        if limit <= 0 or size < q.minimum_base or size * limit < q.minimum_quote:
-            raise Veto("Insufficient funds/position or below exchange minimum")
         return {
             "product": product,
             "side": side,
-            "base_size": str(size),
-            "limit_price": str(limit),
-            "fee_ceiling": str(size * limit * reserve),
+            **{k: capacity[k] for k in ("base_size", "limit_price", "fee_ceiling")},
             "observed_bid": str(q.bid),
             "observed_ask": str(q.ask),
             "quote_timestamp": q.timestamp,
