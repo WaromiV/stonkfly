@@ -67,6 +67,12 @@ def main():
         default="0.006",
         help="Paper fill fee as a decimal fraction per side (default: 0.006)",
     )
+    run.add_argument(
+        "--hodl-feedback",
+        choices=("off", "growing-gap"),
+        default="off",
+        help="Paper-only aversive feedback when the fee-aware HODL shortfall grows",
+    )
     status = sub.add_parser("status")
     status.add_argument("--out", type=Path, default=Path("runs/paper"))
     a = p.parse_args()
@@ -109,6 +115,8 @@ def main():
         p.error("Live mode forbids fixtures and fast replay")
     if a.live and a.daily_orders == 0:
         p.error("Unlimited daily orders are available only in paper mode")
+    if a.live and a.hodl_feedback != "off":
+        p.error("HODL feedback is available only in paper mode")
     if a.steps < 0:
         p.error("steps cannot be negative")
     settings = Settings(
@@ -118,6 +126,7 @@ def main():
         pulse_ms=min(200, a.neural_ms),
         daily_orders=a.daily_orders,
         paper_fee=a.paper_fee,
+        hodl_feedback=a.hodl_feedback,
     )
     out = a.out or Path("runs/live" if a.live else "runs/paper")
     out.mkdir(parents=True, exist_ok=True)
@@ -155,10 +164,11 @@ def main():
         from PIL import Image
 
         from .actions import StonkflyActions
+        from .benchmark import HodlBenchmark
         from .display import market_frame
         from .market import CoinbaseMarket, FixtureMarket
         from .neural.controller import FlyController
-        from .reinforcement import reinforcement
+        from .reinforcement import hodl_reinforcement, reinforcement
         from .risk import Guard, Veto
 
         market = (
@@ -167,6 +177,19 @@ def main():
             else CoinbaseMarket(settings.products)
         )
         previous = ledger.get("observation")
+        benchmark = None
+        previous_hodl = previous.get("hodl") if previous else None
+        if settings.hodl_feedback != "off":
+            if ledger.get("tick") and previous_hodl is None:
+                raise RuntimeError("Missing HODL anchor; explicitly review migration")
+            if previous_hodl:
+                benchmark = HodlBenchmark.restore(previous_hodl["reference"])
+                if (
+                    D(benchmark.initial_cash) != D(ledger.get("initial_cash"))
+                    or D(benchmark.fee_rate) != D(settings.paper_fee)
+                    or benchmark.entry_quote["product"] != settings.products[0]
+                ):
+                    raise RuntimeError("HODL reference does not match this run")
         if previous:
             market.history = previous["market_history"]
             if a.fixture:
@@ -225,6 +248,18 @@ def main():
             kind, delta = reinforcement(
                 equity, ledger.get("anchor"), settings.reward_deadband
             )
+            hodl = feedback = None
+            if settings.hodl_feedback != "off":
+                if benchmark is None:
+                    benchmark = HodlBenchmark.start(
+                        ledger.get("initial_cash"), q, settings.paper_fee,
+                        ledger.get("tick") + 1,
+                    )
+                hodl = benchmark.mark(q, equity)
+                kind, delta, feedback = hodl_reinforcement(
+                    equity, ledger.get("anchor"), settings.reward_deadband,
+                    hodl, previous_hodl,
+                )
             frame = market_frame(product, market.history[product], q.bid, q.ask)
             neural = controller.observe(frame, kind)
             # Checkpoint + accounting anchor are committed before any trade.
@@ -243,8 +278,11 @@ def main():
                 "pnl_delta_usdc": str(delta),
                 "market_history": market.history,
                 "fixture_tick": getattr(market, "tick", None),
+                "hodl": hodl,
+                "feedback": feedback,
             }
             ledger.commit_tick(equity, checkpoint_info, observation)
+            previous_hodl = hodl
             order = {"status": "HOLD"}
             if neural["side"] != "HOLD":
                 try:
@@ -267,6 +305,8 @@ def main():
                 "pnl_delta_usdc": str(delta),
                 "neural": neural,
                 "execution": order,
+                "hodl": hodl,
+                "feedback": feedback,
             }
             with (out / "events.jsonl").open("a") as f:
                 f.write(json.dumps(row, allow_nan=False) + "\n")

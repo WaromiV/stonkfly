@@ -39,6 +39,7 @@ class Settings:
     pulse_ms: float = 200
     pulse_current: float = 20
     reward_deadband: str = "0.01"
+    hodl_feedback: str = "off"
     decoder_threshold_hz: float = 2
     paper_fee: str = "0.006"
     learning: bool = True
@@ -75,6 +76,10 @@ class Settings:
             )
         if D(self.reward_deadband) <= 0:
             raise ValueError("Positive reinforcement deadband required")
+        if self.hodl_feedback not in ("off", "growing-gap"):
+            raise ValueError("Unknown HODL feedback policy")
+        if self.hodl_feedback != "off" and len(self.products) != 1:
+            raise ValueError("HODL feedback requires exactly one product")
         for x in [
             self.max_quote_age,
             self.neural_ms,

@@ -525,6 +525,8 @@ Default: **paper trades, real public BTC-USDC data, $100 simulated balance**. No
 
 For continuous paper operation without a daily order cap, use `python -m stonkfly run --daily-orders 0 --out runs/paper-continuous`. The fly still chooses when to trade, with 60-second pacing and cash/inventory checks. [Paper options and existing-run migration](docs/operations.md#paper-modes).
 
+For a new single-product paper experiment, add `--hodl-feedback growing-gap` to give aversive feedback when the fee-aware buy-and-hold shortfall grows by at least $0.01. An unchanged deficit is not repeatedly penalized. This changes the learning objective; profitable learning remains unproven. [Exact formula, accounting and migration](docs/hodl-feedback.md).
+
 For real orders, first create a dedicated Coinbase Advanced portfolio with **at most 100 USDC** and a portfolio-scoped **ECDSA API key with View + Trade, no Transfer**. Copy `.env.example` to `.env`, fill it in locally, then run these commands yourself:
 
 ```sh
