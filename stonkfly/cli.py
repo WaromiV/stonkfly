@@ -77,6 +77,10 @@ def main():
         "--account-feedback", action="store_true",
         help="Paper-only wallet visual cues and feedback for balance-rejected attempts",
     )
+    run.add_argument(
+        "--stream", action="store_true",
+        help="Paper-only one-second WebSocket observations with minute decision/feedback cadence",
+    )
     status = sub.add_parser("status")
     status.add_argument("--out", type=Path, default=Path("runs/paper"))
     a = p.parse_args()
@@ -123,6 +127,8 @@ def main():
         p.error("HODL feedback is available only in paper mode")
     if a.live and a.account_feedback:
         p.error("Account feedback is available only in paper mode")
+    if a.stream and (a.live or a.fixture or a.fast):
+        p.error("Streaming requires real public data, paper mode, and paced observations")
     if a.steps < 0:
         p.error("steps cannot be negative")
     settings = Settings(
@@ -134,6 +140,7 @@ def main():
         paper_fee=a.paper_fee,
         hodl_feedback=a.hodl_feedback,
         account_feedback=a.account_feedback,
+        streaming=a.stream,
     )
     out = a.out or Path("runs/live" if a.live else "runs/paper")
     out.mkdir(parents=True, exist_ok=True)
@@ -178,8 +185,9 @@ def main():
         from .neural.controller import FlyController
         from .reinforcement import account_reinforcement, hodl_reinforcement, reinforcement
         from .risk import Guard, Veto
+        from .stream_market import CoinbaseStreamMarket
 
-        market = (
+        market = CoinbaseStreamMarket(settings.products) if a.stream else (
             FixtureMarket(settings.products)
             if a.fixture
             else CoinbaseMarket(settings.products)
@@ -198,7 +206,7 @@ def main():
                     or benchmark.entry_quote["product"] != settings.products[0]
                 ):
                     raise RuntimeError("HODL reference does not match this run")
-        if previous:
+        if previous and not a.stream:
             market.history = previous["market_history"]
             if a.fixture:
                 market.tick = previous["fixture_tick"]
@@ -215,11 +223,14 @@ def main():
             "circuit": controller.brain.circuit["report"],
             "vision": controller.brain.visual_report,
             "mode": broker.mode,
-            "feed": "fixture" if a.fixture else "coinbase-public",
+            "feed": "coinbase-public-ws-usd-alias" if a.stream else "fixture" if a.fixture else "coinbase-public",
             "decoder": "DNp20 mean R-L: buy/sell; DNpe017 spike gate; otherwise hold. Engineered fixed mapping.",
             "learning_validated": False,
             "pain_receptors_modeled": False,
-            "timing": "Each observation advances configured neural_ms regardless of wall-market time; no claim of real-time fly physiology.",
+            "timing": (
+                "One-second observations, UTC minute candles, continuous fractional neural budget; decision and new feedback >=60 seconds apart. No real-time physiology claim."
+                if a.stream else "Each observation advances configured neural_ms regardless of wall-market time; no claim of real-time fly physiology."
+            ),
             "source_sha256": {
                 str(path.relative_to(Path(__file__).parent)): hashlib.sha256(
                     path.read_bytes()
@@ -237,6 +248,10 @@ def main():
             )
         ledger.put("provenance_sha256", signature)
         (out / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+        if a.stream:
+            from .streaming import run_stream
+            run_stream(settings, ledger, broker, controller, market, out, a.steps)
+            return
         guard = Guard(settings, ledger, out / "STOP")
         provider = StonkflyActions(guard, broker)
         action = provider.get_actions()[0]

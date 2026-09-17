@@ -4,18 +4,32 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 
-def market_frame(product, history, bid, ask, account=None):
+def market_frame(product, history, bid, ask, account=None, candles=None):
     im = Image.new("RGB", (320, 180), (235, 240, 249))
     d = ImageDraw.Draw(im)
     d.rectangle((0, 0, 319, 27), fill=(19, 36, 71))
     d.text((9, 8), product, fill=(219, 229, 249))
+    if candles:
+        d.text((264, 8), "1 MIN", fill=(219, 229, 249))
     top, bottom = (94 if account else 34), 160
     for x in range(12, 310, 30):
         d.line((x, top, x, bottom), fill=(200, 212, 233))
     for y in range(top + 4, bottom + 2, 24):
         d.line((10, y, 308, y), fill=(200, 212, 233))
     values = np.asarray(history[-100:], dtype=float)
-    if len(values):
+    if candles:
+        bars = candles[-100:]
+        low, high = min(float(c["low"]) for c in bars), max(float(c["high"]) for c in bars)
+        span = max(high - low, float(bid) * .002)
+        lo, span = low - span * .12, span * 1.24
+        y = lambda v: bottom - 7 - (float(v) - lo) / span * (bottom - top - 17)
+        for i, candle in enumerate(bars):
+            x = 12 + i * 294 / max(1, len(bars) - 1)
+            color = (0, 101, 183) if float(candle["close"]) >= float(candle["open"]) else (197, 37, 78)
+            d.line((x, y(candle["low"]), x, y(candle["high"])), fill=color)
+            a, b = sorted((y(candle["open"]), y(candle["close"])))
+            d.rectangle((x - 1, a, x + 1, max(a + 1, b)), fill=color)
+    elif len(values):
         span = max(float(np.ptp(values)), float(np.mean(values)) * 0.002)
         lo = float(values.min()) - span * 0.12
         span *= 1.24

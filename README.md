@@ -527,7 +527,9 @@ For continuous paper operation without a daily order cap, use `python -m stonkfl
 
 For a new single-product paper experiment, add `--hodl-feedback growing-gap` to give aversive feedback when the fee-aware buy-and-hold shortfall grows by at least $0.01. An unchanged deficit is not repeatedly penalized. This changes the learning objective; profitable learning remains unproven. [Exact formula, accounting and migration](docs/hodl-feedback.md).
 
-Add `--account-feedback` to expose cash, holdings, affordability and previous execution outcomes through the existing eyes, and deliver next-observation aversive feedback for balance-rejected attempts. [Account cues, persistence and dashboard fields](docs/account-feedback.md). These signals do not force trade decisions or establish that the fly learns to avoid rejected orders.
+Add `--account-feedback` to expose cash, holdings, affordability and previous execution outcomes through the existing eyes, and deliver next-decision aversive feedback for balance-rejected attempts. [Account cues, persistence and dashboard fields](docs/account-feedback.md). These signals do not force trade decisions or establish that the fly learns to avoid rejected orders.
+
+Add `--stream` for CPU-based one-second observations of real UTC minute candles, continuous 8.3–8.4 ms neural slices, and separate minute decisions/feedback. The read-only dashboard shows feed cadence and pulse delivery. [Clocks, startup gaps, CPU measurements and limitations](docs/streaming.md).
 
 For real orders, first create a dedicated Coinbase Advanced portfolio with **at most 100 USDC** and a portfolio-scoped **ECDSA API key with View + Trade, no Transfer**. Copy `.env.example` to `.env`, fill it in locally, then run these commands yourself:
 

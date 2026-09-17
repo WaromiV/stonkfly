@@ -41,6 +41,7 @@ class Settings:
     reward_deadband: str = "0.01"
     hodl_feedback: str = "off"
     account_feedback: bool = False
+    streaming: bool = False
     decoder_threshold_hz: float = 2
     paper_fee: str = "0.006"
     learning: bool = True
@@ -85,6 +86,10 @@ class Settings:
             raise ValueError("Account feedback must be boolean")
         if self.account_feedback and len(self.products) != 1:
             raise ValueError("Account feedback requires exactly one product")
+        if type(self.streaming) is not bool:
+            raise ValueError("Streaming must be boolean")
+        if self.streaming and (len(self.products) != 1 or not .1 <= self.neural_ms / self.interval_seconds <= 20):
+            raise ValueError("Streaming requires one product and 0.1--20 neural ms per second")
         for x in [
             self.max_quote_age,
             self.neural_ms,

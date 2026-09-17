@@ -21,3 +21,7 @@ build/
 coinbase-key.json
 cdp_api_key.json
 *.partial
+
+# Generated read-only dashboard cache and optional local videos
+dashboard/cache/
+dashboard/anim/
