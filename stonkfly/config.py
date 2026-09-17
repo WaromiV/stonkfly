@@ -66,11 +66,13 @@ class Settings:
             raise ValueError("Invalid paper fee")
         if (
             type(self.daily_orders) is not int
-            or not 1 <= self.daily_orders <= 100
+            or not 0 <= self.daily_orders <= 100
             or not math.isfinite(self.interval_seconds)
             or self.interval_seconds < 60
         ):
-            raise ValueError("Rate limit: >=60 s between orders, <=100 orders/day")
+            raise ValueError(
+                "Rate limit: >=60 s between orders; 1--100 orders/day or 0 for unlimited paper"
+            )
         if D(self.reward_deadband) <= 0:
             raise ValueError("Positive reinforcement deadband required")
         for x in [

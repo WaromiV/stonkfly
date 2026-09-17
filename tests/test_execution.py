@@ -1,6 +1,8 @@
 """No tests send orders to Coinbase. SDK calls here are in-memory doubles."""
 
 import dataclasses
+import subprocess
+import sys
 import time
 
 import pytest
@@ -54,6 +56,9 @@ def test_nonfinite_money(value):
         dict(reward_deadband="0"),
         dict(interval_seconds=float("nan")),
         dict(daily_orders=1.5),
+        dict(daily_orders=-1),
+        dict(daily_orders=101),
+        dict(daily_orders=True),
     ],
 )
 def test_configuration_bounds(changes):
@@ -121,6 +126,70 @@ def test_daily_attempt_limit(env):
     l.attempts_today = lambda now: 24
     with pytest.raises(Veto, match="Daily"):
         g.plan("BTC-USDC", "BUY", {"BTC-USDC": quote()})
+
+
+def test_unlimited_paper_trades_past_daily_cap(tmp_path, monkeypatch):
+    now = [int(time.time() // 86400) * 86400 + 3600]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    s = Settings(daily_orders=0, paper_fee="0.0008")
+    l = Ledger(tmp_path / "ledger.sqlite", s, "paper")
+    try:
+        g = Guard(s, l, tmp_path / "STOP")
+        provider = StonkflyActions(g, PaperBroker(s, l))
+        action = provider.get_actions()[0]
+        for i in range(30):
+            provider.quotes = {"BTC-USDC": quote()}
+            result = action.invoke(
+                {"product": "BTC-USDC", "side": "BUY" if i % 2 == 0 else "SELL"}
+            )
+            assert result["status"] == "FILLED"
+            assert D(result["fee"]) == D(result["quote"]) * D("0.0008")
+            now[0] += 61
+        assert l.attempts_today(now[0]) == 30
+        assert not l.pending()
+        assert l.get("halted") is None
+        assert l.cash >= 0 and all(v >= 0 for v in l.positions.values())
+        g.stop_file.touch()
+        with pytest.raises(Veto, match="STOP"):
+            g.plan("BTC-USDC", "BUY", {"BTC-USDC": quote()})
+    finally:
+        l.close()
+
+
+def test_unlimited_daily_orders_rejected_by_live_guard(tmp_path):
+    s = Settings(daily_orders=0)
+    l = Ledger(tmp_path / "ledger.sqlite", s, "live")
+    try:
+        g = Guard(s, l, tmp_path / "STOP")
+        with pytest.raises(Veto, match="require paper mode"):
+            g.plan("BTC-USDC", "BUY", {"BTC-USDC": quote()})
+        assert not l.pending()
+    finally:
+        l.close()
+
+
+def test_cli_rejects_unlimited_live_before_creating_run(tmp_path):
+    out = tmp_path / "live-run"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "stonkfly",
+            "run",
+            "--live",
+            "--daily-orders",
+            "0",
+            "--preflight-only",
+            "--out",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "only in paper mode" in result.stderr
+    assert not out.exists()
 
 
 def test_crash_recovery_and_exactly_once_paper(env):

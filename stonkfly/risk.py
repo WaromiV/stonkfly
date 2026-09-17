@@ -42,7 +42,9 @@ class Guard:
             raise Veto("Invalid neural proposal")
         if now - self.l.get("last_attempt") < self.s.interval_seconds:
             raise Veto("Order cooldown")
-        if self.l.attempts_today(now) >= self.s.daily_orders:
+        if self.s.daily_orders == 0 and self.l.get("mode") != "paper":
+            raise Veto("Unlimited daily orders require paper mode")
+        if self.s.daily_orders and self.l.attempts_today(now) >= self.s.daily_orders:
             raise Veto("Daily order limit")
         q = quotes[product]
         reserve = D(self.s.fee_reserve)

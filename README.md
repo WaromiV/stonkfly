@@ -523,6 +523,8 @@ python -m stonkfly run
 
 Default: **paper trades, real public BTC-USDC data, $100 simulated balance**. No key needed. Local logs, sensory images and resumable brain state go in `runs/paper/`. Ctrl-C stops it; the same command resumes.
 
+For continuous paper operation without a daily order cap, use `python -m stonkfly run --daily-orders 0 --out runs/paper-continuous`. The fly still chooses when to trade, with 60-second pacing and cash/inventory checks. [Paper options and existing-run migration](docs/operations.md#paper-modes).
+
 For real orders, first create a dedicated Coinbase Advanced portfolio with **at most 100 USDC** and a portfolio-scoped **ECDSA API key with View + Trade, no Transfer**. Copy `.env.example` to `.env`, fill it in locally, then run these commands yourself:
 
 ```sh

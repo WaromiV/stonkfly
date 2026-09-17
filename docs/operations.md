@@ -14,6 +14,10 @@ Existing DOOMFLY researchers can reuse verified local files with `python -m ston
 # Real public prices; simulated fills and 0.6% fee per side.
 python -m stonkfly run --steps 10
 
+# Continuous paper operation with no daily order-attempt cap.
+# Default paper fee is unchanged; set --paper-fee explicitly for another scenario.
+python -m stonkfly run --daily-orders 0 --out runs/paper-continuous
+
 # Explicit synthetic offline market, accelerated development run.
 python -m stonkfly run --fixture --fast --steps 10 --out runs/fixture
 
@@ -22,6 +26,10 @@ python -m stonkfly run --fixture --fast --frozen --steps 10 --out runs/frozen
 ```
 
 `--fast` skips wall waits only in paper mode. It preserves the 0.1 ms neural timestep and the real 60-second execution cooldown, so an accelerated probe can have many rejected trades. This is a plumbing/neural test, not a backtest of achievable market returns. Paper fills use observed bid/ask plus the configured fee; they do not simulate depth, queue position or all market impact. `--fixture` never claims real market data.
+
+`--daily-orders 0` removes the daily attempt cap in **paper mode only**. Omitting `--steps` keeps the worker running. The 60-second pacing, available cash/inventory, quote checks and stop conditions still apply; the neural decoder still chooses BUY, SELL or HOLD. A positive `--daily-orders` value sets a cap from 1 to 100, with 24 as the default. `--paper-fee` sets the decimal commission per side; record the applicable exchange schedule separately rather than treating an old rate as current.
+
+For an existing run, changing this setting requires a reviewed metadata migration because settings/source signatures are checked on restart. Stop the worker, verify paper mode and no unresolved orders, back up its ledger/provenance and referenced checkpoint, and record the old/new settings and source hashes. Preserve balances, order history and neural state. `--resume-reviewed` alone does not authorize a settings migration.
 
 ## Coinbase setup, performed by you
 
@@ -36,7 +44,7 @@ The key must be allowed to trade the requested pairs in your region. Defaults us
 ## Execution guarantees and limits
 
 - Maximum initial funding: 100 USDC. Maximum buy commitment: 10 USDC including a 2% fee reserve. Sell quantity is capped by owned inventory and 10 USDC observed notional; a better execution price can yield slightly more proceeds. No borrowing, shorting, transfers or leverage actions are exposed.
-- At most 24 order attempts per UTC day and at least 60 seconds between attempts. Rejected previews count. Failed orders do not become new strategy choices.
+- By default, at most 24 order attempts per UTC day and at least 60 seconds between attempts. `--daily-orders 0` disables only the daily cap for paper runs; live mode requires a positive cap. Rejected previews count. Failed orders do not become new strategy choices.
 - Price-bounded fill-or-kill orders use at most 0.5% slippage and 0.5% spread. Quotes must be no older than 15 seconds. A fresh book is fetched after neural integration; a move beyond the observation tolerance vetoes the trade. Preview fees, account balances and the STOP condition are checked before submission.
 - At 20 USDC drawdown from starting equity, **stop new orders**. This is not a liquidation order or guaranteed maximum loss. Existing holdings remain exposed; price moves between observations can exceed the threshold. Decide separately how you want to manage those holdings.
 - SQLite records a unique client order ID before submission. An uncertain response stays unresolved; the worker searches the exchange for that same ID instead of sending a new order. Missing/ambiguous results stop the worker for manual review. Final fills and fees settle exactly once. Unexpected actual fees are booked, then further orders halt.

@@ -56,6 +56,17 @@ def main():
         choices=["BTC-USDC", "ETH-USDC", "SOL-USDC"],
     )
     run.add_argument("--neural-ms", type=float, default=500)
+    run.add_argument(
+        "--daily-orders",
+        type=int,
+        default=24,
+        help="Maximum attempts per UTC day (default: 24); 0 removes the cap in paper mode",
+    )
+    run.add_argument(
+        "--paper-fee",
+        default="0.006",
+        help="Paper fill fee as a decimal fraction per side (default: 0.006)",
+    )
     status = sub.add_parser("status")
     status.add_argument("--out", type=Path, default=Path("runs/paper"))
     a = p.parse_args()
@@ -96,6 +107,8 @@ def main():
         return
     if a.live and (a.fixture or a.fast):
         p.error("Live mode forbids fixtures and fast replay")
+    if a.live and a.daily_orders == 0:
+        p.error("Unlimited daily orders are available only in paper mode")
     if a.steps < 0:
         p.error("steps cannot be negative")
     settings = Settings(
@@ -103,6 +116,8 @@ def main():
         learning=not a.frozen,
         neural_ms=a.neural_ms,
         pulse_ms=min(200, a.neural_ms),
+        daily_orders=a.daily_orders,
+        paper_fee=a.paper_fee,
     )
     out = a.out or Path("runs/live" if a.live else "runs/paper")
     out.mkdir(parents=True, exist_ok=True)
